@@ -105,7 +105,7 @@ tracker1 = DeepSort(max_age=30)
 tracker2 = DeepSort(max_age=30)
 
 reid_model = torchreid.models.build_model('osnet_x0_25', num_classes=1000, pretrained=True)
-torchreid.utils.load_pretrained_weights(reid_model, r"C:\Users\anagha\Downloads\osnet_x0_25_imagenet.pth")
+torchreid.utils.load_pretrained_weights(reid_model, r"C:\Users\anagha\Downloads\osnet_x0_25_imagenet.pth") torchreid.utils.load_pretrained_weights(reid_model, r"C:\Users\anagha\Downloads\osnet_x0_25_imagenet.pth") #manually download the weights from https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO
 reid_model.eval()
 
 transform = transforms.Compose([
