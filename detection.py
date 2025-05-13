@@ -13,8 +13,18 @@ def extract_embedding(crop):
         input_tensor = transform(img).unsqueeze(0)
         emb = reid_model(input_tensor).squeeze().numpy()
         return emb / np.linalg.norm(emb)
+import random
 
-def match_embedding(embedding, threshold=0.7):
+id_color_map = {}  # {global_id: (B, G, R)}
+
+def get_color_for_id(global_id):
+    if global_id not in id_color_map:
+        # Assign a random bright color (avoid very dark shades)
+        id_color_map[global_id] = tuple(random.randint(100, 255) for _ in range(3))
+    return id_color_map[global_id]
+
+
+def match_embedding(embedding, threshold=0.85):  # increase from 0.7
     best_id = None
     best_sim = -1
     for gid, vectors in global_id_map.items():
@@ -23,6 +33,7 @@ def match_embedding(embedding, threshold=0.7):
             if sim > best_sim:
                 best_sim = sim
                 best_id = gid
+                print(f"[MATCH DEBUG] Best match ID: {best_id}, similarity: {best_sim:.2f}")
     return best_id if best_sim > threshold else None
 
 def assign_global_id(cam_id, track_id, crop):
@@ -42,7 +53,8 @@ def assign_global_id(cam_id, track_id, crop):
 
 def detect_track_global(frame, tracker, cam_id, active_gids):
     #print(frame)
-    results = model(frame)[0]
+    results = model(frame, conf=0.4)[0]  # Default is 0.25, increase slightly
+
     detections = []
 
     for box in results.boxes:
@@ -63,22 +75,26 @@ def detect_track_global(frame, tracker, cam_id, active_gids):
         x1, y1, x2, y2 = map(int, [l, t, l + w, t + h])
 
         # Shrink width
-        box_width = x2 - x1
-        shrink = int(0.8 * box_width)
-        x2 -= shrink
+        #box_width = x2 - x1
+        #shrink = int(0.8 * box_width)
+        #x2 -= shrink
 
         #Crop upper 60%
         box_height = y2 - y1
-        upper_y2 = y1 + int(0.6 * box_height)
+        upper_y2 = y1 + int(0.4 * box_height)
 
         # Clamp
         x1 = max(0, x1)
         y1 = max(0, y1)
         x2 = min(frame.shape[1], x2)
         upper_y2 = min(frame.shape[0], upper_y2)
+        #y2 = min(frame.shape[0], y2)  
 
+        #cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 1)
+        #cv2.putText(frame, "YOLO", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
         # Extract crop
         crop = frame[y1:upper_y2, x1:x2]
+        #crop = frame[y1:y2, x1:x2]
         if crop.size == 0 or crop.shape[0] < 30 or crop.shape[1] < 30:
             continue
 
@@ -86,26 +102,30 @@ def detect_track_global(frame, tracker, cam_id, active_gids):
         global_id = assign_global_id(cam_id, track_id, crop)
         active_gids.add(global_id)
 
-        # Draw box and ID
-        cv2.rectangle(frame, (x1, y1), (x2, upper_y2), (0, 255, 0), 2)
+        color = get_color_for_id(global_id)
+
+        cv2.rectangle(frame, (x1, y1), (x2, upper_y2), color, 2)
+        
+
         if person_left:
             time = average_waiting_time + global_id * average_waiting_time
             time -= average_waiting_time * person_left # Adjust time for people who left
         else:
             time = average_waiting_time + global_id * average_waiting_time
-        cv2.putText(frame, f"GID {global_id}, time {time}", (x1, y1 - 5),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        cv2.putText(frame, f"GID {global_id}", (x1, y1 - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
     return frame
 
 
-model = YOLO("yolov8n.pt")
+model = YOLO("yolov8s.pt")
 
 tracker1 = DeepSort(max_age=30)
 tracker2 = DeepSort(max_age=30)
 
-reid_model = torchreid.models.build_model('osnet_x0_25', num_classes=1000, pretrained=True)
-torchreid.utils.load_pretrained_weights(reid_model, r"C:\Users\anagha\Downloads\osnet_x0_25_imagenet.pth") torchreid.utils.load_pretrained_weights(reid_model, r"C:\Users\anagha\Downloads\osnet_x0_25_imagenet.pth") #manually download the weights from https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO
+reid_model = torchreid.models.build_model('osnet_x1_0', num_classes=1000, pretrained=True)
+#torchreid.utils.load_pretrained_weights(reid_model, r"C:\Users\anagh\OneDrive\Documents\MAI\S3\ACV\Task2\osnet_x0_25_imagenet.pth")  #manually download the weights from https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO
+torchreid.utils.load_pretrained_weights(reid_model, r"C:\Users\anagh\Downloads\osnet_x1_0_imagenet.pth")  #manually download the weights from https://kaiyangzhou.github.io/deep-person-reid/MODEL_ZOO
 reid_model.eval()
 
 transform = transforms.Compose([
@@ -121,8 +141,8 @@ track_to_global = {}            # {(cam_id, track_id): global_id}
 next_global_id = 0
 
 average_waiting_time = 2  # seconds
-cap1 = cv2.VideoCapture(r"C:\Users\anagha\Documents\queue\Retail.mp4")
-cap2 = cv2.VideoCapture(r"C:\Users\anagha\Documents\queue\Retail.mp4")
+cap1 = cv2.VideoCapture(r"cam1.mp4")
+cap2 = cv2.VideoCapture(r"cam2.mp4")
 person_left = 0
 prev_count = None 
 
